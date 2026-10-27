@@ -12,7 +12,7 @@
 </head>
 <body class="bg-paper text-ink">
   <a class="skip-link" href="#matrix-title">跳到神经元矩阵</a>
-  <div class="flex h-dvh min-h-0 flex-col">
+  <div id="app-root" class="flex h-dvh min-h-0 flex-col">
 
     <header class="flex h-14 shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-b border-border px-4">
       <h1 class="text-base font-semibold">NeuronScope <span class="font-normal text-muted">· 逐层神经元编辑台</span></h1>
@@ -60,11 +60,21 @@
             <span class="flex items-center gap-2">激活弱 <span class="legend-ramp inline-block h-2 w-24 rounded-sm" aria-hidden="true"></span> 强</span>
             <span class="flex items-center gap-1.5"><span class="inline-block h-2.5 w-2.5 rounded-sm bg-danger" aria-hidden="true"></span> 消融 ×0</span>
             <span class="flex items-center gap-1.5"><span class="inline-block h-2.5 w-2.5 rounded-sm bg-accent" aria-hidden="true"></span> 缩放 ×s</span>
+            <span class="flex items-center gap-1.5"><span class="inline-block h-2.5 w-2.5 rounded-sm bg-select" aria-hidden="true"></span> 选中</span>
           </div>
         </div>
 
         <div id="detail" class="shrink-0 border-t border-border px-4 py-3">
-          <h3 class="text-sm font-medium">编辑所选</h3>
+          <div class="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+            <h3 class="text-sm font-medium">编辑所选</h3>
+            <form id="locate-form" class="flex items-center gap-1.5" novalidate>
+              <label for="locate-layer" class="text-xs text-muted">层</label>
+              <input id="locate-layer" type="number" class="input-num w-16" min="0" value="0" inputmode="numeric">
+              <label for="locate-neuron" class="text-xs text-muted">神经元</label>
+              <input id="locate-neuron" type="number" class="input-num w-28" min="0" value="0" inputmode="numeric">
+              <button type="submit" class="btn btn-ghost">定位</button>
+            </form>
+          </div>
           <div id="detail-body" class="mt-2 text-sm text-muted">正在加载模型…</div>
         </div>
       </section>
@@ -107,6 +117,18 @@
         </form>
       </section>
     </main>
+  </div>
+
+  <div id="confirm-clear" class="fixed inset-0 z-30 hidden" role="dialog" aria-modal="true" aria-labelledby="confirm-clear-title">
+    <div id="confirm-clear-backdrop" class="absolute inset-0 bg-paper/70"></div>
+    <div class="absolute left-1/2 top-1/2 w-96 max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 rounded-md border border-border bg-raise p-4">
+      <h3 id="confirm-clear-title" class="text-sm font-medium">清空全部编辑</h3>
+      <p id="confirm-clear-msg" class="mt-2 text-sm leading-relaxed text-muted"></p>
+      <div class="mt-4 flex justify-end gap-2">
+        <button id="confirm-clear-cancel" type="button" class="btn btn-ghost">取消</button>
+        <button id="confirm-clear-ok" type="button" class="btn btn-danger-fill">清空</button>
+      </div>
+    </div>
   </div>
 
   <div id="toasts" class="pointer-events-none fixed right-3 top-3 z-20 flex w-80 flex-col gap-2"></div>

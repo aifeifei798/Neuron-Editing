@@ -8,6 +8,7 @@
   --color-danger: oklch(68% 0.19 25);
   --color-warn: oklch(78% 0.14 85);
   --color-ok: oklch(75% 0.14 135);
+  --color-select: oklch(72% 0.15 255);
 
   --heat-0: oklch(23% 0.02 250);
   --heat-1: oklch(30% 0.045 240);
@@ -67,6 +68,9 @@
   }
   .btn-danger {
     @apply text-danger hover:bg-raise;
+  }
+  .btn-danger-fill {
+    @apply bg-danger text-paper hover:-translate-y-px active:translate-y-0;
   }
   .btn-sm-mode {
     @apply min-h-8 px-2.5 font-mono text-xs;

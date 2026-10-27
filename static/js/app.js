@@ -33,6 +33,7 @@ const S = {
   sel: new Set(),
   lastClick: -1,
   hover: -1,
+  flash: null,      // {n} 定位高亮（十字线），短暂显示后清除
   busy: false,
   ctrl: null,
 };
@@ -100,6 +101,8 @@ async function pollInfo() {
 function onReady() {
   $("btn-probe").disabled = false;
   $("btn-send").disabled = false;
+  $("locate-layer").max = String(S.numLayers - 1);
+  $("locate-neuron").max = String(S.interSize - 1);
   $("matrix-empty").classList.add("hidden");
   buildRail();
   layoutMatrix();
@@ -213,6 +216,7 @@ function drawMatrix() {
   const idle = cssColor("--color-raise");
   const cDanger = cssColor("--color-danger");
   const cAccent = cssColor("--color-accent");
+  const cSelect = cssColor("--color-select");
   const heat = [];
   for (let i = 0; i <= 8; i++) heat.push(cssColor(`--heat-${i}`));
   for (let n = 0; n < S.interSize; n++) {
@@ -229,9 +233,26 @@ function drawMatrix() {
     }
   }
   if (S.hover >= 0 && !S.sel.has(S.hover)) strokeCell(ctx, S.hover, 1, cssColor("--color-ink"));
-  ctx.strokeStyle = cssColor("--color-accent");
-  ctx.lineWidth = 2;
-  for (const n of S.sel) strokeCell(ctx, n, 2, cssColor("--color-accent"));
+  // 选中环画在格外圈，格内的编辑色（红/青）保持完整可见
+  ctx.strokeStyle = cSelect;
+  ctx.lineWidth = 1.5;
+  for (const n of S.sel) {
+    const cx = (n % geo.cols) * geo.cell;
+    const cy = Math.floor(n / geo.cols) * geo.cell;
+    ctx.strokeRect(cx - 1.25, cy - 1.25, geo.cell + 2.5, geo.cell + 2.5);
+  }
+  if (S.flash && S.flash.n >= 0) {
+    const cx = (S.flash.n % geo.cols) * geo.cell + geo.cell / 2;
+    const cy = Math.floor(S.flash.n / geo.cols) * geo.cell + geo.cell / 2;
+    ctx.strokeStyle = cSelect;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(0, cy);
+    ctx.lineTo(geo.w, cy);
+    ctx.moveTo(cx, 0);
+    ctx.lineTo(cx, geo.h);
+    ctx.stroke();
+  }
 }
 
 function neuronAt(offsetX, offsetY) {
@@ -381,6 +402,103 @@ async function clearAll() {
   }
 }
 
+/* ---------------- 确认弹窗（清空全部编辑） ---------------- */
+
+let confirmReturnFocus = null;
+
+function openConfirmClear() {
+  if (editCount() === 0) {
+    toast("当前没有任何编辑，无需清空");
+    return;
+  }
+  $("confirm-clear-msg").textContent =
+    `将清除全部 ${editCount()} 处编辑，矩阵标记一并消失，edits.json 会同步写回。确定清空吗？`;
+  confirmReturnFocus = document.activeElement;
+  $("confirm-clear").classList.remove("hidden");
+  $("app-root").inert = true;
+  $("confirm-clear-cancel").focus();
+}
+
+function closeConfirmClear() {
+  $("confirm-clear").classList.add("hidden");
+  $("app-root").inert = false;
+  if (confirmReturnFocus && typeof confirmReturnFocus.focus === "function") {
+    confirmReturnFocus.focus();
+  }
+  confirmReturnFocus = null;
+}
+
+function bindConfirmClear() {
+  $("btn-clear-all").addEventListener("click", openConfirmClear);
+  $("confirm-clear-cancel").addEventListener("click", closeConfirmClear);
+  $("confirm-clear-backdrop").addEventListener("click", closeConfirmClear);
+  $("confirm-clear-ok").addEventListener("click", async () => {
+    closeConfirmClear();
+    await clearAll();
+  });
+  document.addEventListener("keydown", (e) => {
+    const dlg = $("confirm-clear");
+    if (dlg.classList.contains("hidden")) return;
+    if (e.key === "Escape") {
+      e.preventDefault();
+      closeConfirmClear();
+    } else if (e.key === "Tab") {
+      const ring = [$("confirm-clear-cancel"), $("confirm-clear-ok")];
+      const idx = ring.indexOf(document.activeElement);
+      e.preventDefault();
+      const next = e.shiftKey
+        ? ring[(idx - 1 + ring.length) % ring.length]
+        : ring[(idx + 1) % ring.length];
+      next.focus();
+    }
+  });
+}
+
+/* ---------------- 定位 ---------------- */
+
+function scrollToNeuron(n) {
+  const wrap = $("matrix-wrap");
+  const x = (n % geo.cols) * geo.cell;
+  const y = Math.floor(n / geo.cols) * geo.cell;
+  const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  wrap.scrollTo({
+    left: Math.max(0, x + geo.cell / 2 - wrap.clientWidth / 2),
+    top: Math.max(0, y + geo.cell / 2 - wrap.clientHeight / 2),
+    behavior: reduced ? "auto" : "smooth",
+  });
+}
+
+function locateNeuron() {
+  const layerRaw = $("locate-layer").value.trim();
+  const neuronRaw = $("locate-neuron").value.trim();
+  if (layerRaw === "" || neuronRaw === "") {
+    toast("请先输入层号和神经元编号，再点定位");
+    return;
+  }
+  const L = Number(layerRaw);
+  const N = Number(neuronRaw);
+  if (!Number.isInteger(L) || L < 0 || L >= S.numLayers) {
+    toast(`层号超出范围：应在 0 到 ${S.numLayers - 1} 之间，请改正后重试`);
+    return;
+  }
+  if (!Number.isInteger(N) || N < 0 || N >= S.interSize) {
+    toast(`神经元编号超出范围：应在 0 到 ${S.interSize - 1} 之间，请改正后重试`);
+    return;
+  }
+  setLayer(L);
+  S.sel.add(N);
+  S.lastClick = N;
+  scrollToNeuron(N);
+  S.flash = { n: N };
+  drawMatrix();
+  updateDetail();
+  clearTimeout(S.flashTimer);
+  S.flashTimer = setTimeout(() => {
+    S.flash = null;
+    drawMatrix();
+  }, 1600);
+}
+
 /* ---------------- 详情面板 ---------------- */
 
 function updateDetail() {
@@ -391,12 +509,18 @@ function updateDetail() {
     return;
   }
   if (S.sel.size === 0) {
-    body.textContent = "点击矩阵中的神经元开始编辑。Ctrl+点击多选，Shift+点击范围选择，双击快速消融/恢复，Esc 取消选择。";
+    body.textContent =
+      "点击矩阵中的神经元开始编辑；Ctrl+单击多选，Shift+单击范围选择，双击快速消融/恢复，Esc 取消选择。也可以在上方输入层号和神经元编号后点「定位」直达。";
     return;
   }
 
   const ids = [...S.sel].sort((a, b) => a - b);
   const le = S.edits[S.layer] || S.edits[String(S.layer)] || {};
+
+  if (ids.length === 1) {
+    if (document.activeElement !== $("locate-layer")) $("locate-layer").value = String(S.layer);
+    if (document.activeElement !== $("locate-neuron")) $("locate-neuron").value = String(ids[0]);
+  }
 
   const head = el("p", "text-sm text-ink");
   const b = el("b", "font-mono");
@@ -450,26 +574,8 @@ function updateDetail() {
   body.appendChild(acts);
 
   const tools = el("div", "mt-3 flex flex-wrap items-center gap-2");
-  const jump = el("input", "input-num w-32");
-  jump.type = "number";
-  jump.min = "0";
-  jump.max = String(S.interSize - 1);
-  jump.placeholder = "神经元编号";
-  jump.setAttribute("aria-label", "按编号选中神经元");
-  const jumpBtn = mk("选中", () => {
-    const n = Number(jump.value);
-    if (Number.isNaN(n) || n < 0 || n >= S.interSize) {
-      toast(`编号超出范围：应在 0 到 ${S.interSize - 1} 之间`);
-      return;
-    }
-    setLayer(S.layer);
-    S.sel.add(n);
-    S.lastClick = n;
-    drawMatrix();
-    updateDetail();
-  });
   const clrLayer = mk(`清空第 ${S.layer} 层编辑`, () => clearLayer(S.layer), "btn btn-danger");
-  tools.append(jump, jumpBtn, clrLayer);
+  tools.append(clrLayer);
   body.appendChild(tools);
 }
 
@@ -660,7 +766,7 @@ function stopGen() {
 
 function bindControls() {
   $("btn-probe").addEventListener("click", runProbe);
-  $("btn-clear-all").addEventListener("click", clearAll);
+  bindConfirmClear();
   $("btn-send").addEventListener("click", (e) => {
     e.preventDefault();
     send();
@@ -675,6 +781,10 @@ function bindControls() {
   });
   $("mode-fit").addEventListener("click", () => setMode("fit"));
   $("mode-zoom").addEventListener("click", () => setMode("zoom"));
+  $("locate-form").addEventListener("submit", (e) => {
+    e.preventDefault();
+    locateNeuron();
+  });
 }
 
 function setMode(m) {
