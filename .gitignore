@@ -1,0 +1,17 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# 本地私有配置与运行时产物
+.env.local
+server.log
+server.pid
+edits.json
+.forge/
+
+# Node
+node_modules/
+
+# 系统
+.DS_Store

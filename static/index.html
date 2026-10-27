@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>NeuronScope · 神经元编辑台</title>
+  <link rel="icon" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/app.css">
+</head>
+<body class="bg-paper text-ink">
+  <a class="skip-link" href="#matrix-title">跳到神经元矩阵</a>
+  <div class="flex h-dvh min-h-0 flex-col">
+
+    <header class="flex h-14 shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-b border-border px-4">
+      <h1 class="text-base font-semibold">NeuronScope <span class="font-normal text-muted">· 逐层神经元编辑台</span></h1>
+      <div class="ml-auto flex flex-wrap items-center gap-2">
+        <span id="model-chip" class="rounded-md border border-border bg-surface px-2 py-1 font-mono text-xs text-muted" aria-busy="true">模型加载中…</span>
+        <span id="dim-chip" class="hidden font-mono text-xs text-muted md:inline"></span>
+        <span class="font-mono text-xs text-muted">编辑 <b id="edit-count" class="font-medium text-ink">0</b></span>
+        <button id="btn-clear-all" type="button" class="btn btn-danger">清空全部编辑</button>
+      </div>
+    </header>
+
+    <main class="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[minmax(0,1fr)_26rem]">
+
+      <!-- 左：神经元矩阵 -->
+      <section class="flex min-h-0 min-w-0 flex-col border-border lg:border-r" aria-labelledby="matrix-title">
+        <div class="shrink-0 border-b border-border px-4 py-3">
+          <div class="flex flex-wrap items-center gap-3">
+            <h2 id="matrix-title" class="text-sm font-medium">神经元矩阵</h2>
+            <span id="layer-desc" class="font-mono text-xs text-muted"></span>
+            <div class="ml-auto flex items-center gap-1" role="group" aria-label="矩阵显示模式">
+              <button id="mode-fit" type="button" class="btn btn-ghost btn-sm-mode" aria-pressed="true">适配</button>
+              <button id="mode-zoom" type="button" class="btn btn-ghost btn-sm-mode" aria-pressed="false">放大</button>
+            </div>
+          </div>
+          <div id="layer-rail" class="mt-2 flex gap-1 overflow-x-auto pb-1" role="group" aria-label="选择层"></div>
+          <div class="mt-2">
+            <label for="probe-text" class="block text-xs text-muted">探测文本（跑一次前向传播，给每个神经元算平均激活）</label>
+            <div class="mt-1 flex gap-2">
+              <input id="probe-text" type="text" class="input" value="用一句话介绍量子计算。" placeholder="例如：用一句话介绍量子计算。">
+              <button id="btn-probe" type="button" class="btn btn-primary shrink-0" disabled>探测激活</button>
+            </div>
+          </div>
+        </div>
+
+        <div id="matrix-wrap" class="relative min-h-0 min-w-0 flex-1 overflow-auto p-4">
+          <canvas id="matrix" class="block" role="img" aria-label="神经元激活矩阵"></canvas>
+          <div id="tooltip" class="tooltip hidden"></div>
+          <div id="matrix-empty" class="flex h-full min-h-40 items-center justify-center px-6 text-center text-sm text-muted" role="status">
+            模型正在加载（首次约需几十秒）。加载完成后，这里会按层显示全部神经元的激活热区，点击即可编辑。
+          </div>
+        </div>
+
+        <div class="shrink-0 border-t border-border px-4 py-2">
+          <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted">
+            <span class="flex items-center gap-2">激活弱 <span class="legend-ramp inline-block h-2 w-24 rounded-sm" aria-hidden="true"></span> 强</span>
+            <span class="flex items-center gap-1.5"><span class="inline-block h-2.5 w-2.5 rounded-sm bg-danger" aria-hidden="true"></span> 消融 ×0</span>
+            <span class="flex items-center gap-1.5"><span class="inline-block h-2.5 w-2.5 rounded-sm bg-accent" aria-hidden="true"></span> 缩放 ×s</span>
+          </div>
+        </div>
+
+        <div id="detail" class="shrink-0 border-t border-border px-4 py-3">
+          <h3 class="text-sm font-medium">编辑所选</h3>
+          <div id="detail-body" class="mt-2 text-sm text-muted">正在加载模型…</div>
+        </div>
+      </section>
+
+      <!-- 右：对话测试 -->
+      <section class="flex min-h-0 min-w-0 flex-col" aria-labelledby="chat-title">
+        <div class="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-2 border-b border-border px-4 py-2">
+          <h2 id="chat-title" class="text-sm font-medium">对话测试</h2>
+          <label class="flex cursor-pointer items-center gap-1.5 text-sm">
+            <input id="use-edits" type="checkbox" checked> 应用编辑
+          </label>
+          <label class="flex cursor-pointer items-center gap-1.5 text-sm">
+            <input id="compare" type="checkbox"> 对比基线
+          </label>
+          <label class="ml-auto flex items-center gap-1.5 text-xs text-muted">
+            <span>最大 tokens</span>
+            <input id="max-tokens" type="number" class="input-num w-24" min="64" max="4096" step="64" value="1024">
+          </label>
+          <label class="flex items-center gap-1.5 text-xs text-muted">
+            <span>温度</span>
+            <input id="temperature" type="number" class="input-num w-20" min="0" max="2" step="0.1" value="0.6">
+          </label>
+        </div>
+
+        <div id="messages" class="min-h-0 min-w-0 flex-1 overflow-y-auto px-4 py-3 text-sm" role="log" aria-label="对话记录">
+          <div id="chat-empty" class="mt-6 text-sm leading-relaxed text-muted">
+            还没有对话。先在左侧矩阵点选神经元做编辑（双击可快速消融），再在这里发消息观察输出变化；
+            勾选「对比基线」可以同屏对比编辑前后的两份回答。
+          </div>
+        </div>
+
+        <form id="chat-form" class="shrink-0 border-t border-border p-3">
+          <label for="chat-input" class="sr-only">消息内容</label>
+          <textarea id="chat-input" rows="2" class="input w-full resize-none leading-relaxed" placeholder="向模型提问…（Enter 发送，Shift+Enter 换行）"></textarea>
+          <div class="mt-2 flex items-center gap-2">
+            <button id="btn-send" type="submit" class="btn btn-primary" disabled>发送</button>
+            <button id="btn-stop" type="button" class="btn btn-danger hidden">停止</button>
+            <span id="chat-hint" class="text-xs text-muted" role="status"></span>
+          </div>
+        </form>
+      </section>
+    </main>
+  </div>
+
+  <div id="toasts" class="pointer-events-none fixed right-3 top-3 z-20 flex w-80 flex-col gap-2"></div>
+  <noscript><p class="p-4 text-sm text-danger">本工具需要启用 JavaScript 才能渲染矩阵与对话。</p></noscript>
+  <script src="/js/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,31 @@
+@theme {
+  /* design-forge · Signal · signal */
+  --color-paper: oklch(17% 0.015 250);
+  --color-ink: oklch(96% 0.005 250);
+  --color-muted: oklch(72% 0.01 250);
+  --color-accent: oklch(80% 0.14 195);
+  --color-border: oklch(28% 0.01 250);
+
+  --font-display: "Space Grotesk", ui-serif, Georgia, serif;
+  --font-body: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+
+  --radius-sm: 2px;
+  --radius-md: 4px;
+  --radius-lg: 6px;
+  --radius-pill: 4px;
+
+  --ease-forge: cubic-bezier(0.3, 0, 0.2, 1);
+  --duration-forge: 120ms;
+
+  --space-1: 3px;
+  --space-2: 6px;
+  --space-3: 10px;
+  --space-4: 13px;
+  --space-6: 19px;
+  --space-8: 26px;
+  --space-12: 38px;
+  --space-16: 51px;
+  --space-24: 77px;
+  --space-section: 77px;
+}

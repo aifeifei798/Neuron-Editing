@@ -1,0 +1,106 @@
+@import "tailwindcss";
+@import "../forge-tokens.css";
+
+/* design-forge · Signal 基础上补充的工具语义 token（面板 / 状态色 / 激活热区色阶） */
+@theme {
+  --color-surface: oklch(19.5% 0.015 250);
+  --color-raise: oklch(23% 0.015 250);
+  --color-danger: oklch(68% 0.19 25);
+  --color-warn: oklch(78% 0.14 85);
+  --color-ok: oklch(75% 0.14 135);
+
+  --heat-0: oklch(23% 0.02 250);
+  --heat-1: oklch(30% 0.045 240);
+  --heat-2: oklch(38% 0.075 228);
+  --heat-3: oklch(48% 0.1 214);
+  --heat-4: oklch(58% 0.12 202);
+  --heat-5: oklch(67% 0.13 197);
+  --heat-6: oklch(75% 0.12 192);
+  --heat-7: oklch(83% 0.1 190);
+  --heat-8: oklch(91% 0.06 188);
+}
+
+@layer base {
+  html {
+    color-scheme: dark;
+    scrollbar-color: var(--color-border) transparent;
+    caret-color: var(--color-accent);
+  }
+  body {
+    background-color: var(--color-paper);
+    color: var(--color-ink);
+    font-family: var(--font-body);
+  }
+  ::selection {
+    background-color: var(--color-accent);
+    color: var(--color-paper);
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+  }
+  input[type="checkbox"],
+  input[type="range"] {
+    accent-color: var(--color-accent);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation: none !important;
+      transition: none !important;
+    }
+  }
+}
+
+@layer components {
+  .btn {
+    @apply inline-flex min-h-9 items-center justify-center gap-1.5 rounded-md px-3 text-sm font-medium
+      transition-[background-color,color,transform] duration-[var(--duration-forge)] ease-[var(--ease-forge)]
+      disabled:pointer-events-none disabled:opacity-50;
+  }
+  .btn-primary {
+    @apply bg-accent text-paper hover:-translate-y-px active:translate-y-0;
+  }
+  .btn-ghost {
+    @apply text-ink hover:bg-raise;
+  }
+  .btn-danger {
+    @apply text-danger hover:bg-raise;
+  }
+  .btn-sm-mode {
+    @apply min-h-8 px-2.5 font-mono text-xs;
+  }
+  .btn-sm-mode[aria-pressed="true"] {
+    @apply border border-accent text-ink;
+  }
+  .input {
+    @apply w-full min-h-9 rounded-md border border-border bg-surface px-2.5 py-1.5 text-base text-ink
+      placeholder:text-muted;
+  }
+  .input-num {
+    @apply min-h-9 rounded-md border border-border bg-surface px-2 py-1 font-mono text-base text-ink;
+  }
+  .layer-btn {
+    @apply relative inline-flex min-h-9 min-w-10 shrink-0 items-center justify-center rounded-md border border-border
+      px-1 font-mono text-xs text-muted transition-[background-color,border-color,color]
+      duration-[var(--duration-forge)] hover:bg-raise;
+  }
+  .layer-btn[aria-pressed="true"] {
+    @apply border-accent text-ink;
+  }
+  .legend-ramp {
+    background-image: linear-gradient(to right, var(--heat-0), var(--heat-4), var(--heat-8));
+  }
+  .tooltip {
+    @apply pointer-events-none absolute z-10 max-w-72 rounded-md border border-border bg-raise px-2 py-1
+      font-mono text-xs leading-snug text-ink;
+  }
+  .toast {
+    @apply rounded-md border border-danger bg-raise px-3 py-2 text-sm leading-snug text-ink;
+  }
+  .skip-link {
+    @apply sr-only focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-20 focus:rounded-md
+      focus:bg-raise focus:px-3 focus:py-2;
+  }
+}
