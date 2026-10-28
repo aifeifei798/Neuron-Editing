@@ -59,12 +59,14 @@
           <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted">
             <span class="flex items-center gap-2">激活弱 <span class="legend-ramp inline-block h-2 w-24 rounded-sm" aria-hidden="true"></span> 强</span>
             <span class="flex items-center gap-1.5"><span class="inline-block h-2.5 w-2.5 rounded-sm bg-danger" aria-hidden="true"></span> 消融 ×0</span>
-            <span class="flex items-center gap-1.5"><span class="inline-block h-2.5 w-2.5 rounded-sm bg-accent" aria-hidden="true"></span> 缩放 ×s</span>
+            <span class="flex items-center gap-1.5"><span class="inline-block h-2.5 w-2.5 rounded-sm bg-accent" aria-hidden="true"></span> 乘 ×s&gt;0</span>
+            <span class="flex items-center gap-1.5"><span class="inline-block h-2.5 w-2.5 rounded-sm bg-warn" aria-hidden="true"></span> 乘 ×s&lt;0</span>
+            <span class="flex items-center gap-1.5"><span class="inline-block h-2.5 w-2.5 rounded-sm bg-ok" aria-hidden="true"></span> 加 +d</span>
             <span class="flex items-center gap-1.5"><span class="inline-block h-2.5 w-2.5 rounded-sm bg-select" aria-hidden="true"></span> 选中</span>
           </div>
         </div>
 
-        <div id="detail" class="shrink-0 border-t border-border px-4 py-3">
+        <div id="detail" class="h-56 shrink-0 overflow-y-auto border-t border-border px-4 py-3">
           <div class="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
             <h3 class="text-sm font-medium">编辑所选</h3>
             <form id="locate-form" class="flex items-center gap-1.5" novalidate>

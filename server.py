@@ -20,6 +20,7 @@ import threading
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Literal
 
 import torch
 from fastapi import FastAPI, HTTPException
@@ -77,7 +78,10 @@ class AbortCriteria(StoppingCriteria):
 
 
 def _edits_to_json() -> dict:
-    return {str(l): {str(n): s for n, s in neurons.items()} for l, neurons in sorted(edits.items())}
+    return {
+        str(l): {str(n): {"op": e["op"], "value": e["value"]} for n, e in neurons.items()}
+        for l, neurons in sorted(edits.items())
+    }
 
 
 def load_edits() -> None:
@@ -85,7 +89,16 @@ def load_edits() -> None:
     if EDITS_PATH.exists():
         try:
             raw = json.loads(EDITS_PATH.read_text(encoding="utf-8"))
-            edits = {int(l): {int(n): float(s) for n, s in neurons.items()} for l, neurons in raw.items()}
+            loaded: dict[int, dict[int, dict]] = {}
+            for l, neurons in raw.items():
+                mapping: dict[int, dict] = {}
+                for n, e in neurons.items():
+                    if isinstance(e, dict):  # 新格式 {"op","value"}
+                        mapping[int(n)] = {"op": e.get("op", "mul"), "value": float(e.get("value", 1.0))}
+                    else:  # 旧格式：纯数字 = 乘法倍率
+                        mapping[int(n)] = {"op": "mul", "value": float(e)}
+                loaded[int(l)] = mapping
+            edits = loaded
         except (ValueError, OSError) as exc:  # 损坏文件不阻断启动
             print(f"[edits] 读取失败，忽略: {exc}")
 
@@ -115,11 +128,18 @@ def _make_hook(layer_id: int):
             layer_edits = edits.get(layer_id)
             enabled = edits_enabled
         if layer_edits and enabled:
-            idx = torch.tensor(sorted(layer_edits), device=h.device, dtype=torch.long)
-            scales = torch.tensor(
-                [layer_edits[int(i)] for i in idx.tolist()], device=h.device, dtype=h.dtype
+            idx_list = sorted(layer_edits)
+            idx = torch.tensor(idx_list, device=h.device, dtype=torch.long)
+            entries = [layer_edits[i] for i in idx_list]
+            mul = torch.tensor(
+                [e["value"] if e["op"] == "mul" else 1.0 for e in entries],
+                device=h.device, dtype=h.dtype,
             )
-            h = h.index_copy(-1, idx, h.index_select(-1, idx) * scales)
+            add = torch.tensor(
+                [0.0 if e["op"] == "mul" else e["value"] for e in entries],
+                device=h.device, dtype=h.dtype,
+            )
+            h = h.index_copy(-1, idx, h.index_select(-1, idx) * mul + add)
             return (h,)
         return None
 
@@ -178,7 +198,10 @@ def load_model() -> None:
 
 class EditItem(BaseModel):
     neuron: int = Field(ge=0)
-    scale: float | None = Field(default=None, ge=0.0, le=4.0)
+    op: Literal["mul", "add"] = "mul"  # mul=乘法倍率（负值=符号翻转），add=加性偏移
+    value: float | None = Field(default=None, ge=-100.0, le=100.0)
+    scale: float | None = Field(default=None, ge=-100.0, le=100.0)  # 兼容旧字段，等价 mul
+    # value 与 scale 都缺省时表示移除该编辑
 
 
 class EditBatch(BaseModel):
@@ -189,7 +212,9 @@ class EditBatch(BaseModel):
 class EditSingle(BaseModel):
     layer: int = Field(ge=0)
     neuron: int = Field(ge=0)
-    scale: float | None = Field(default=None, ge=0.0, le=4.0)
+    op: Literal["mul", "add"] = "mul"
+    value: float | None = Field(default=None, ge=-100.0, le=100.0)
+    scale: float | None = Field(default=None, ge=-100.0, le=100.0)  # 兼容旧字段
 
 
 class ProbeRequest(BaseModel):
@@ -230,6 +255,14 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="NeuronScope", lifespan=lifespan)
 
 
+@app.middleware("http")
+async def no_cache_middleware(request, call_next):  # noqa: ANN001, ANN201
+    """本地工具：禁止启发式缓存，保证改完前端代码普通刷新即生效。"""
+    resp = await call_next(request)
+    resp.headers["Cache-Control"] = "no-cache"
+    return resp
+
+
 # ---------------------------------------------------------------------------
 # API
 # ---------------------------------------------------------------------------
@@ -265,13 +298,14 @@ def api_get_edits():
 @app.put("/api/edits")
 def api_set_edit(body: EditSingle):
     _validate_neuron(body.layer, body.neuron)
+    v = body.value if body.value is not None else body.scale
     with state_lock:
-        if body.scale is None:
+        if v is None:
             edits.get(body.layer, {}).pop(body.neuron, None)
             if not edits.get(body.layer):
                 edits.pop(body.layer, None)
         else:
-            edits.setdefault(body.layer, {})[body.neuron] = body.scale
+            edits.setdefault(body.layer, {})[body.neuron] = {"op": body.op, "value": v}
         save_edits()
         return {"ok": True, "num_edits": sum(len(n) for n in edits.values())}
 
@@ -283,10 +317,11 @@ def api_batch_edits(body: EditBatch):
     with state_lock:
         layer_map = edits.setdefault(body.layer, {})
         for item in body.items:
-            if item.scale is None:
+            v = item.value if item.value is not None else item.scale
+            if v is None:
                 layer_map.pop(item.neuron, None)
             else:
-                layer_map[item.neuron] = item.scale
+                layer_map[item.neuron] = {"op": item.op, "value": v}
         if not layer_map:
             edits.pop(body.layer, None)
         save_edits()

@@ -36,6 +36,7 @@
     --color-surface: oklch(19.5% 0.015 250);
     --color-raise: oklch(23% 0.015 250);
     --color-danger: oklch(68% 0.19 25);
+    --color-warn: oklch(78% 0.14 85);
     --color-ok: oklch(75% 0.14 135);
     --color-select: oklch(72% 0.15 255);
     --heat-0: oklch(23% 0.02 250);
@@ -293,11 +294,17 @@
   .h-14 {
     height: calc(var(--spacing) * 14);
   }
+  .h-56 {
+    height: calc(var(--spacing) * 56);
+  }
   .h-dvh {
     height: 100dvh;
   }
   .h-full {
     height: 100%;
+  }
+  .max-h-28 {
+    max-height: calc(var(--spacing) * 28);
   }
   .min-h-0 {
     min-height: 0px;
@@ -448,6 +455,9 @@
   .bg-danger {
     background-color: var(--color-danger);
   }
+  .bg-ok {
+    background-color: var(--color-ok);
+  }
   .bg-paper {
     background-color: var(--color-paper);
   }
@@ -465,6 +475,9 @@
   }
   .bg-surface {
     background-color: var(--color-surface);
+  }
+  .bg-warn {
+    background-color: var(--color-warn);
   }
   .p-3 {
     padding: calc(var(--spacing) * 3);

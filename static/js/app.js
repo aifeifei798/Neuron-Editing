@@ -26,7 +26,8 @@ const S = {
   ready: false,
   numLayers: 0,
   interSize: 0,
-  edits: {},        // {"12": {"4521": 0}}
+  edits: {},        // {"12": {"4521": {"op":"mul"|"add", "value": number}}}
+  editMode: "mul",  // 详情面板当前编辑模式：mul=乘法倍率，add=加性偏移
   layer: 0,
   mode: "fit",      // fit | zoom
   probe: null,      // {"0": Uint8Array, ...}
@@ -67,6 +68,23 @@ function toast(msg) {
 
 function editCount() {
   return Object.values(S.edits).reduce((a, m) => a + Object.keys(m).length, 0);
+}
+
+function editLabel(e) {
+  if (!e) return "未编辑";
+  if (e.op === "add") {
+    return `${e.value >= 0 ? "+" : ""}${Number(e.value).toFixed(2)}（加性）`;
+  }
+  if (e.value === 0) return "已消融 ×0";
+  if (e.value < 0) return `×${Number(e.value).toFixed(2)}（翻转）`;
+  return `×${Number(e.value).toFixed(2)}`;
+}
+
+function editColorName(e) {
+  if (e.op === "add") return "--color-ok";
+  if (e.value === 0) return "--color-danger";
+  if (e.value < 0) return "--color-warn";
+  return "--color-accent";
 }
 
 function applyInfo(info) {
@@ -161,12 +179,14 @@ function setLayer(l) {
 
 /* ---------------- 矩阵画布 ---------------- */
 
-const geo = { cols: 0, rows: 0, cell: 0, w: 0, h: 0 };
+const geo = { cols: 0, rows: 0, cell: 0, w: 0, h: 0, mode: "" };
 
-function layoutMatrix() {
+function layoutMatrix(force = false) {
   if (!S.interSize) return;
   const cv = $("matrix");
   const wrap = $("matrix-wrap");
+  // 适配模式画布必然放得下，禁用滚动以消除"滚动条出现→容器变小→重算→再变化"的反馈循环
+  wrap.style.overflow = S.mode === "fit" ? "clip" : "auto";
   const pad = 32; // p-4 左右
   const availW = Math.max(80, wrap.clientWidth - pad);
   const availH = Math.max(80, wrap.clientHeight - 32);
@@ -180,11 +200,24 @@ function layoutMatrix() {
     cell = Math.min(availW / cols, availH / Math.ceil(N / cols));
   }
   const rows = Math.ceil(N / cols);
+  // 画布 CSS 尺寸取整，杜绝亚像素溢出触发滚动条
+  const w = Math.floor(cols * cell);
+  const h = Math.floor(rows * cell);
+  const unchanged =
+    !force &&
+    geo.mode === S.mode &&
+    geo.cols === cols &&
+    geo.rows === rows &&
+    Math.abs(geo.cell - cell) < 0.01 &&
+    geo.w === w &&
+    geo.h === h;
+  geo.mode = S.mode;
   geo.cols = cols;
   geo.rows = rows;
   geo.cell = cell;
-  geo.w = cols * cell;
-  geo.h = rows * cell;
+  geo.w = w;
+  geo.h = h;
+  if (unchanged) return;
   const dpr = window.devicePixelRatio || 1;
   cv.style.width = `${geo.w}px`;
   cv.style.height = `${geo.h}px`;
@@ -214,8 +247,6 @@ function drawMatrix() {
   const gap = geo.cell >= 6 ? 1 : 0.5;
   const size = geo.cell - gap;
   const idle = cssColor("--color-raise");
-  const cDanger = cssColor("--color-danger");
-  const cAccent = cssColor("--color-accent");
   const cSelect = cssColor("--color-select");
   const heat = [];
   for (let i = 0; i <= 8; i++) heat.push(cssColor(`--heat-${i}`));
@@ -226,9 +257,9 @@ function drawMatrix() {
     if (pd) fill = heat[Math.min(8, Math.round((pd[n] * 8) / 255))];
     ctx.fillStyle = fill;
     ctx.fillRect(cx, cy, size, size);
-    const s = le[n];
-    if (s !== undefined) {
-      ctx.fillStyle = s === 0 ? cDanger : cAccent;
+    const e = le[n];
+    if (e) {
+      ctx.fillStyle = cssColor(editColorName(e));
       ctx.fillRect(cx, cy, size, size);
     }
   }
@@ -276,7 +307,7 @@ function showTooltip(n, clientX, clientY) {
   const s = le[n];
   const lines = [`#${n}`];
   if (pd) lines.push(`激活 ${((pd[n] / 255) * 100).toFixed(0)}%（层内相对）`);
-  lines.push(s === undefined ? "未编辑" : s === 0 ? "已消融 ×0" : `缩放 ×${s}`);
+  lines.push(editLabel(s));
   tt.textContent = lines.join(" · ");
   tt.classList.remove("hidden");
   const x = Math.min(clientX - wr.left + 14, wr.width - tt.offsetWidth - 8);
@@ -324,7 +355,7 @@ function bindMatrix() {
     const n = neuronAt(e.offsetX, e.offsetY);
     if (n < 0) return;
     const le = S.edits[S.layer] || S.edits[String(S.layer)] || {};
-    if (le[n] === undefined) applyEdits([n], 0);
+    if (!le[n]) applyEdits([n], "mul", 0);
     else removeEdits([n]);
   });
   cv.addEventListener("keydown", (e) => {
@@ -334,7 +365,15 @@ function bindMatrix() {
       updateDetail();
     }
   });
-  new ResizeObserver(() => layoutMatrix()).observe($("matrix-wrap"));
+  let roScheduled = false;
+  new ResizeObserver(() => {
+    if (roScheduled) return;
+    roScheduled = true;
+    requestAnimationFrame(() => {
+      roScheduled = false;
+      layoutMatrix();
+    });
+  }).observe($("matrix-wrap"));
 }
 
 /* ---------------- 编辑操作 ---------------- */
@@ -346,17 +385,17 @@ function afterEditsChanged() {
   updateDetail();
 }
 
-async function applyEdits(neurons, scale) {
+async function applyEdits(neurons, op, value) {
   try {
     await api("/api/edits/batch", {
       method: "POST",
       body: JSON.stringify({
         layer: S.layer,
-        items: neurons.map((n) => ({ neuron: n, scale })),
+        items: neurons.map((n) => ({ neuron: n, op, value })),
       }),
     });
     const m = S.edits[S.layer] || (S.edits[S.layer] = {});
-    for (const n of neurons) m[n] = scale;
+    for (const n of neurons) m[n] = { op, value };
     afterEditsChanged();
   } catch (e) {
     toast(`编辑失败：${e.message}`);
@@ -369,7 +408,7 @@ async function removeEdits(neurons) {
       method: "POST",
       body: JSON.stringify({
         layer: S.layer,
-        items: neurons.map((n) => ({ neuron: n, scale: null })),
+        items: neurons.map((n) => ({ neuron: n, op: "mul", value: null })),
       }),
     });
     const m = S.edits[S.layer] || {};
@@ -511,6 +550,29 @@ function updateDetail() {
   if (S.sel.size === 0) {
     body.textContent =
       "点击矩阵中的神经元开始编辑；Ctrl+单击多选，Shift+单击范围选择，双击快速消融/恢复，Esc 取消选择。也可以在上方输入层号和神经元编号后点「定位」直达。";
+    const entries = [];
+    for (const [l, neurons] of Object.entries(S.edits)) {
+      for (const [n, e] of Object.entries(neurons)) entries.push({ l: Number(l), n: Number(n), e });
+    }
+    if (entries.length) {
+      const label = el("p", "mt-2 text-xs text-muted");
+      label.textContent = `当前全部编辑（${entries.length} 处，点击跳转定位）：`;
+      body.appendChild(label);
+      const box = el("div", "mt-1 flex max-h-28 flex-wrap gap-1.5 overflow-y-auto");
+      for (const { l, n, e } of entries.sort((a, b) => a.l - b.l || a.n - b.n)) {
+        const chip = el("button", "btn btn-ghost btn-sm-mode");
+        chip.type = "button";
+        chip.textContent = `L${l}#${n} ${editLabel(e)}`;
+        chip.title = "点击定位并选中该神经元";
+        chip.addEventListener("click", () => {
+          $("locate-layer").value = String(l);
+          $("locate-neuron").value = String(n);
+          locateNeuron();
+        });
+        box.appendChild(chip);
+      }
+      body.appendChild(box);
+    }
     return;
   }
 
@@ -532,28 +594,74 @@ function updateDetail() {
   head.appendChild(code);
   body.appendChild(head);
 
-  const current = ids.length === 1 && le[ids[0]] !== undefined ? le[ids[0]] : 1;
+  const mode = S.editMode;
+  const current = ids.length === 1 ? le[ids[0]] : null;
+  const base = current && current.op === mode ? current.value : mode === "mul" ? 1 : 0;
+  const clampSlider = (v) =>
+    mode === "mul" ? Math.min(3, Math.max(0, v)) : Math.min(5, Math.max(-5, v));
+  const fmt = (v) =>
+    mode === "mul" ? `×${Number(v).toFixed(2)}` : `${v >= 0 ? "+" : ""}${Number(v).toFixed(2)}`;
+
   const row = el("div", "mt-2 flex flex-wrap items-center gap-2");
+  const mkMode = (m, label) => {
+    const btn = el("button", "btn btn-ghost btn-sm-mode");
+    btn.type = "button";
+    btn.textContent = label;
+    btn.setAttribute("aria-pressed", String(mode === m));
+    btn.addEventListener("click", () => {
+      S.editMode = m;
+      updateDetail();
+    });
+    return btn;
+  };
+  row.append(mkMode("mul", "乘 ×"), mkMode("add", "加 +"));
+
   const lab = el("label", "text-xs text-muted");
   lab.setAttribute("for", "scale-slider");
-  lab.textContent = "缩放系数";
+  lab.textContent = mode === "mul" ? "缩放倍率" : "加性偏移";
   const slider = el("input");
   slider.id = "scale-slider";
   slider.type = "range";
-  slider.min = "0";
-  slider.max = "2";
+  slider.min = mode === "mul" ? "0" : "-5";
+  slider.max = mode === "mul" ? "3" : "5";
   slider.step = "0.05";
-  slider.value = String(current);
+  slider.value = String(clampSlider(base));
   slider.className = "w-52";
+  const num = el("input", "input-num w-24");
+  num.type = "number";
+  num.id = "scale-num";
+  num.min = "-100";
+  num.max = "100";
+  num.step = "0.05";
+  num.value = Number(base).toFixed(2);
+  num.setAttribute("aria-label", "精确编辑数值（-100 到 100）");
   const val = el("span", "font-mono text-sm");
-  val.textContent = `×${Number(current).toFixed(2)}`;
+  val.textContent = fmt(base);
   slider.addEventListener("input", () => {
-    val.textContent = `×${Number(slider.value).toFixed(2)}`;
+    num.value = Number(slider.value).toFixed(2);
+    val.textContent = fmt(slider.value);
   });
-  slider.addEventListener("change", () => {
-    applyEdits(ids, Number(slider.value));
+  const commit = (raw) => {
+    const v = Number(raw);
+    if (Number.isNaN(v) || v < -100 || v > 100) {
+      toast("数值超出范围：应在 -100 到 100 之间，请改正后重试");
+      return;
+    }
+    if (mode === "add" && v === 0) {
+      removeEdits(ids);
+      return;
+    }
+    applyEdits(ids, mode, v);
+  };
+  slider.addEventListener("change", () => commit(slider.value));
+  num.addEventListener("change", () => commit(num.value));
+  num.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      commit(num.value);
+    }
   });
-  row.append(lab, slider, val);
+  row.append(lab, slider, num, val);
   body.appendChild(row);
 
   const acts = el("div", "mt-2 flex flex-wrap items-center gap-2");
@@ -564,13 +672,21 @@ function updateDetail() {
     btn.addEventListener("click", fn);
     return btn;
   };
-  acts.append(
-    mk("置零消融", () => applyEdits(ids, 0)),
-    mk("减半", () => applyEdits(ids, Number((current / 2).toFixed(2)))),
-    mk("复原 ×1", () => applyEdits(ids, 1)),
-    mk("加倍", () => applyEdits(ids, Number(Math.min(4, current * 2).toFixed(2)))),
-    mk("清除编辑", () => removeEdits(ids), "btn btn-danger"),
-  );
+  if (mode === "mul") {
+    acts.append(
+      mk("置零消融", () => applyEdits(ids, "mul", 0)),
+      mk("减半", () => applyEdits(ids, "mul", Number((base / 2).toFixed(2)))),
+      mk("复原 ×1", () => applyEdits(ids, "mul", 1)),
+      mk("加倍", () => applyEdits(ids, "mul", Number(Math.min(100, base * 2).toFixed(2)))),
+    );
+  } else {
+    acts.append(
+      mk("+1", () => applyEdits(ids, "add", Number((base + 1).toFixed(2)))),
+      mk("−1", () => applyEdits(ids, "add", Number((base - 1).toFixed(2)))),
+      mk("反转符号", () => applyEdits(ids, "add", Number((-base).toFixed(2)))),
+    );
+  }
+  acts.append(mk("清除编辑", () => removeEdits(ids), "btn btn-danger"));
   body.appendChild(acts);
 
   const tools = el("div", "mt-3 flex flex-wrap items-center gap-2");
